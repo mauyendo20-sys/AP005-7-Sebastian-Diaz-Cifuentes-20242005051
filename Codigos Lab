@@ -1,4 +1,0 @@
-g++ main.cpp Led.cpp -o programa
-.\programa.exe
-Upload
-Monitor 
