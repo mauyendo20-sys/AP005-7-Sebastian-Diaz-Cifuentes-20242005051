@@ -1,0 +1,263 @@
+#include <Arduino.h>
+
+// ===============================
+// Pines: mismo montaje del profesor
+// ===============================
+const int SW_X1 = 18;
+const int SW_X2 = 19;
+
+const int LED_X1 = 25;
+const int LED_X2 = 26;
+const int LED_Y  = 27;
+
+// ===============================
+// Datos de entrenamiento: OR
+// ===============================
+const int inputs[4][2] = {
+  {0, 0},
+  {0, 1},
+  {1, 0},
+  {1, 1}
+};
+
+// Tabla de verdad OR
+const int targets[4] = {0, 1, 1, 1};
+
+// ===============================
+// Parametros del perceptron
+// ===============================
+int w1 = 0;
+int w2 = 0;
+int b  = 0;
+
+const int learning_rate = 1;
+const int max_epochs = 20;
+
+bool trainingFinished = false;
+
+// Para detectar cambios en modo manual
+int lastX1 = -1;
+int lastX2 = -1;
+int lastY  = -1;
+
+// ===============================
+// Funciones del perceptron
+// ===============================
+int activation(int z) {
+  return (z >= 0) ? 1 : 0;
+}
+
+int predict(int x1, int x2) {
+  int z = w1 * x1 + w2 * x2 + b;
+  return activation(z);
+}
+
+// ===============================
+// Visualizacion con LEDs
+// ===============================
+void showVisualState(int x1, int x2, int y) {
+  digitalWrite(LED_X1, x1);
+  digitalWrite(LED_X2, x2);
+  digitalWrite(LED_Y, y);
+}
+
+void blinkOutputLed(int times, int delayMs) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(LED_Y, HIGH);
+    delay(delayMs);
+    digitalWrite(LED_Y, LOW);
+    delay(delayMs);
+  }
+}
+
+// ===============================
+// Evaluacion
+// ===============================
+int evaluate(bool showLeds, int waitMs) {
+  int errors = 0;
+
+  Serial.println("x1 x2 | Target | Prediccion | Error");
+
+  for (int i = 0; i < 4; i++) {
+    int x1 = inputs[i][0];
+    int x2 = inputs[i][1];
+    int t  = targets[i];
+
+    int y = predict(x1, x2);
+    int e = t - y;
+
+    if (e != 0) {
+      errors++;
+    }
+
+    Serial.printf(
+      " %d  %d |    %d    |      %d      | %2d\n",
+      x1, x2, t, y, e
+    );
+
+    if (showLeds) {
+      showVisualState(x1, x2, y);
+      delay(waitMs);
+    }
+  }
+
+  Serial.printf("Errores totales: %d de 4\n", errors);
+  return errors;
+}
+
+// ===============================
+// Entrenamiento
+// ===============================
+void trainPerceptron() {
+  for (int epoch = 1; epoch <= max_epochs; epoch++) {
+
+    Serial.println();
+    Serial.println("==========================================");
+    Serial.printf("EPOCA %d - ENTRENAMIENTO OR\n", epoch);
+    Serial.println("==========================================");
+
+    int errorsThisEpoch = 0;
+
+    for (int i = 0; i < 4; i++) {
+      int x1 = inputs[i][0];
+      int x2 = inputs[i][1];
+      int t  = targets[i];
+
+      int y = predict(x1, x2);
+      int e = t - y;
+
+      // Mostrar el patron y la salida actual
+      showVisualState(x1, x2, y);
+
+      Serial.printf(
+        "Patron %d -> x=(%d,%d), t=%d, y=%d, e=%d\n",
+        i + 1, x1, x2, t, y, e
+      );
+
+      if (e != 0) {
+        errorsThisEpoch++;
+
+        Serial.println("  Hay error. Se actualizan los parametros.");
+
+        // Parpadeo para indicar error
+        blinkOutputLed(2, 120);
+
+        // Regla de aprendizaje del perceptron
+        w1 += learning_rate * e * x1;
+        w2 += learning_rate * e * x2;
+        b  += learning_rate * e;
+
+      } else {
+        Serial.println("  Sin error. No se actualizan parametros.");
+      }
+
+      Serial.printf("  w1=%d, w2=%d, b=%d\n", w1, w2, b);
+      Serial.println();
+
+      delay(1400);
+    }
+
+    Serial.printf("Errores durante la epoca: %d\n", errorsThisEpoch);
+    Serial.println("Evaluacion al final de la epoca:");
+
+    int remainingErrors = evaluate(true, 500);
+
+    if (remainingErrors == 0) {
+      Serial.println();
+      Serial.println("********** APRENDIZAJE OR COMPLETADO **********");
+      Serial.printf(
+        "Pesos finales: w1=%d, w2=%d, b=%d\n",
+        w1, w2, b
+      );
+
+      trainingFinished = true;
+      return;
+    }
+
+    delay(1200);
+  }
+
+  Serial.println();
+  Serial.println("Se alcanzo el limite de epocas.");
+  Serial.printf(
+    "Pesos actuales: w1=%d, w2=%d, b=%d\n",
+    w1, w2, b
+  );
+
+  trainingFinished = true;
+}
+
+// ===============================
+// Modo manual
+// ===============================
+void manualMode() {
+  int x1 = digitalRead(SW_X1);
+  int x2 = digitalRead(SW_X2);
+
+  int y = predict(x1, x2);
+
+  showVisualState(x1, x2, y);
+
+  if (x1 != lastX1 || x2 != lastX2 || y != lastY) {
+    Serial.println();
+    Serial.println("----- MODO MANUAL OR -----");
+
+    Serial.printf("Entradas: x1=%d, x2=%d\n", x1, x2);
+    Serial.printf("Salida del perceptron: y=%d\n", y);
+
+    Serial.printf(
+      "Funcion aprendida: y = step(%d*x1 + %d*x2 + %d)\n",
+      w1, w2, b
+    );
+
+    lastX1 = x1;
+    lastX2 = x2;
+    lastY  = y;
+  }
+
+  delay(100);
+}
+
+// ===============================
+// Setup
+// ===============================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(SW_X1, INPUT);
+  pinMode(SW_X2, INPUT);
+
+  pinMode(LED_X1, OUTPUT);
+  pinMode(LED_X2, OUTPUT);
+  pinMode(LED_Y, OUTPUT);
+
+  showVisualState(0, 0, 0);
+
+  Serial.println();
+  Serial.println("PERCEPTRON DE 2 ENTRADAS - COMPUERTA OR");
+  Serial.println("Primero se entrena automaticamente.");
+  Serial.println("Despues entra en modo manual con interruptores.");
+  Serial.println("Pesos iniciales: w1=0, w2=0, b=0");
+  Serial.println();
+
+  Serial.println("ANTES DEL ENTRENAMIENTO");
+  evaluate(true, 700);
+
+  delay(1500);
+
+  trainPerceptron();
+
+  Serial.println();
+  Serial.println("Ahora puedes mover los interruptores.");
+  Serial.println("El sistema entro en modo manual OR.");
+}
+
+// ===============================
+// Loop
+// ===============================
+void loop() {
+  if (trainingFinished) {
+    manualMode();
+  }
+}
