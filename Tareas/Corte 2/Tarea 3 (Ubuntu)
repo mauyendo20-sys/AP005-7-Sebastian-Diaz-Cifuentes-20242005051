@@ -1,0 +1,199 @@
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <algorithm>
+
+using namespace std;
+
+struct Patron {
+    array<double, 3> x;
+    int objetivo;
+};
+
+struct Pesos {
+    double w1 = 0.0;
+    double w2 = 0.0;
+    double w3 = 0.0;
+    double b  = 0.0;
+};
+
+struct RegistroEpoca {
+    int epoca;
+    Pesos pesos;
+};
+
+// Funcion escalon: devuelve 1 si z >= 0; de lo contrario devuelve 0.
+int activacion(double z) {
+    return (z >= 0.0) ? 1 : 0;
+}
+
+// Evita mostrar -0.00 por pequenos errores de precision decimal.
+double limpiar(double valor) {
+    return (fabs(valor) < 1e-9) ? 0.0 : valor;
+}
+
+double sumaPonderada(const Patron& p, const Pesos& pesos) {
+    return pesos.w1 * p.x[0] + pesos.w2 * p.x[1]
+         + pesos.w3 * p.x[2] + pesos.b;
+}
+
+void mostrarPesos(const Pesos& p) {
+    cout << "w1=" << limpiar(p.w1)
+         << "  w2=" << limpiar(p.w2)
+         << "  w3=" << limpiar(p.w3)
+         << "  b="  << limpiar(p.b) << '\n';
+}
+
+void graficarPeso(const string& nombre, const vector<RegistroEpoca>& historial,
+                  double Pesos::*campo) {
+    cout << "\nEvolucion de " << nombre << " (cada caracter representa 0.10)\n";
+    cout << "Los signos + representan valores positivos y - valores negativos.\n";
+
+    // El eje vertical se mantiene centrado para poder comparar positivos y negativos.
+    constexpr int centro = 18;
+    for (const auto& registro : historial) {
+        double valor = limpiar(registro.pesos.*campo);
+        int cantidad = static_cast<int>(round(fabs(valor) * 10.0));
+        cout << "Epoca " << setw(2) << registro.epoca << " ";
+
+        if (valor < 0.0) {
+            cout << string(max(0, centro - cantidad), ' ')
+                 << string(cantidad, '-') << '|';
+        } else {
+            cout << string(centro, ' ') << '|'
+                 << string(cantidad, '+');
+        }
+        cout << "  (" << showpos << fixed << setprecision(2) << valor
+             << noshowpos << ")\n";
+    }
+}
+
+void graficarHistorial(const vector<RegistroEpoca>& historial) {
+    cout << "\n============================================================\n";
+    cout << "          GRAFICAS DE EVOLUCION DE LOS PESOS\n";
+    cout << "============================================================\n";
+    graficarPeso("w1", historial, &Pesos::w1);
+    graficarPeso("w2", historial, &Pesos::w2);
+    graficarPeso("w3", historial, &Pesos::w3);
+    graficarPeso("sesgo b", historial, &Pesos::b);
+}
+
+int main() {
+    const double tasaAprendizaje = 0.2;
+    const int maxEpocas = 100;
+    const int pausaSegundos = 3; // El documento propone una pausa de 3 segundos.
+
+    const array<Patron, 4> datos = {{
+        {{{2.0, 3.0, 4.0}}, 0},
+        {{{3.0, 3.0, 4.0}}, 1},
+        {{{1.0, 2.0, 1.0}}, 0},
+        {{{3.0, 1.0, 2.0}}, 1}
+    }};
+
+    Pesos pesos; // Inicialmente w1=w2=w3=b=0.
+    vector<RegistroEpoca> historial;
+    bool aprendizajeCompletado = false;
+
+    cout << fixed << setprecision(2);
+    cout << "============================================================\n";
+    cout << " PERCEPTRON DE TRES ENTRADAS - APRENDIZAJE EN C++\n";
+    cout << "============================================================\n";
+    cout << "Tasa de aprendizaje: " << tasaAprendizaje << '\n';
+    cout << "Pesos iniciales: ";
+    mostrarPesos(pesos);
+    cout << "Funcion de activacion: y=1 si z>=0; en caso contrario y=0.\n";
+
+    for (int epoca = 1; epoca <= maxEpocas; ++epoca) {
+        cout << "\n\n#################### EPOCA " << epoca
+             << " ####################\n";
+
+        // FASE 1: entrenamiento. Los pesos se actualizan despues de cada patron.
+        cout << "\nFASE 1 - ENTRENAMIENTO (se actualizan los pesos)\n";
+        for (size_t i = 0; i < datos.size(); ++i) {
+            const Patron& p = datos[i];
+            double z = sumaPonderada(p, pesos);
+            int salida = activacion(z);
+            int error = p.objetivo - salida;
+
+            double dw1 = tasaAprendizaje * error * p.x[0];
+            double dw2 = tasaAprendizaje * error * p.x[1];
+            double dw3 = tasaAprendizaje * error * p.x[2];
+            double db  = tasaAprendizaje * error;
+
+            pesos.w1 += dw1;
+            pesos.w2 += dw2;
+            pesos.w3 += dw3;
+            pesos.b  += db;
+
+            cout << "Patron " << (i + 1)
+                 << " | x=(" << p.x[0] << "," << p.x[1] << "," << p.x[2] << ")"
+                 << " | t=" << p.objetivo
+                 << " | z=" << limpiar(z)
+                 << " | y=" << salida
+                 << " | e=" << error << '\n';
+            cout << "   Cambios: dw=(" << limpiar(dw1) << ", "
+                 << limpiar(dw2) << ", " << limpiar(dw3) << ", "
+                 << limpiar(db) << ")\n";
+            cout << "   Pesos nuevos: ";
+            mostrarPesos(pesos);
+        }
+
+        // FASE 2: evaluacion. Se usan los pesos finales de la epoca sin modificarlos.
+        cout << "\nFASE 2 - EVALUACION (NO se actualizan los pesos)\n";
+        cout << "Patron | x1 x2 x3 | t | z     | y | e\n";
+        cout << "-------------------------------------------\n";
+        int errores = 0;
+        for (size_t i = 0; i < datos.size(); ++i) {
+            const Patron& p = datos[i];
+            double z = sumaPonderada(p, pesos);
+            int salida = activacion(z);
+            int error = p.objetivo - salida;
+            if (error != 0) {
+                ++errores;
+            }
+
+            cout << setw(6) << (i + 1) << " | "
+                 << setw(2) << p.x[0] << " "
+                 << setw(2) << p.x[1] << " "
+                 << setw(2) << p.x[2] << " | "
+                 << p.objetivo << " | "
+                 << setw(5) << limpiar(z) << " | "
+                 << salida << " | " << error << '\n';
+        }
+
+        cout << "Errores de evaluacion: " << errores << " de " << datos.size() << '\n';
+        cout << "Pesos al final de la epoca: ";
+        mostrarPesos(pesos);
+        historial.push_back({epoca, pesos});
+
+        if (errores == 0) {
+            aprendizajeCompletado = true;
+            cout << "\nAPRENDIZAJE COMPLETADO: todos los patrones fueron clasificados correctamente.\n";
+            break;
+        }
+
+        if (epoca < maxEpocas) {
+            cout << "Pausa de " << pausaSegundos
+                 << " segundos antes de la siguiente epoca...\n";
+            this_thread::sleep_for(chrono::seconds(pausaSegundos));
+        }
+    }
+
+    cout << "\n============================================================\n";
+    cout << "                 RESULTADO FINAL\n";
+    cout << "============================================================\n";
+    if (!aprendizajeCompletado) {
+        cout << "No se alcanzo el aprendizaje completo en " << maxEpocas << " epocas.\n";
+    }
+    cout << "Pesos finales: ";
+    mostrarPesos(pesos);
+    cout << "Epocas ejecutadas: " << historial.size() << '\n';
+
+    graficarHistorial(historial);
+    cout << "\nFin del programa.\n";
+    return aprendizajeCompletado ? 0 : 1;
+}
